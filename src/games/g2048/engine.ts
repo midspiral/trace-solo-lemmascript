@@ -100,20 +100,42 @@ export function slideGain(line: number[]): number {
 // ---------------------------------------------------------------------------
 
 export function getRow(b: Board, r: number): number[] {
+  //@ verify
+  //@ requires b.length === SIZE
+  //@ requires 0 <= r && r < N
+  //@ ensures \result.length === N
   const out: number[] = []
-  for (let c = 0; c < N; c++) out.push(b[r * N + c])
+  for (let c = 0; c < N; c++) {
+    //@ invariant 0 <= c && c <= N
+    //@ invariant out.length === c
+    out.push(b[r * N + c])
+  }
   return out
 }
 
 export function getCol(b: Board, c: number): number[] {
+  //@ verify
+  //@ requires b.length === SIZE
+  //@ requires 0 <= c && c < N
+  //@ ensures \result.length === N
   const out: number[] = []
-  for (let r = 0; r < N; r++) out.push(b[r * N + c])
+  for (let r = 0; r < N; r++) {
+    //@ invariant 0 <= r && r <= N
+    //@ invariant out.length === r
+    out.push(b[r * N + c])
+  }
   return out
 }
 
 export function reversed(a: number[]): number[] {
+  //@ verify
+  //@ ensures \result.length === a.length
   const out: number[] = []
-  for (let i = a.length - 1; i >= 0; i--) out.push(a[i])
+  for (let i = a.length - 1; i >= 0; i--) {
+    //@ invariant -1 <= i && i < a.length
+    //@ invariant out.length === a.length - 1 - i
+    out.push(a[i])
+  }
   return out
 }
 
@@ -122,22 +144,37 @@ export function reversed(a: number[]): number[] {
 // ---------------------------------------------------------------------------
 
 export function applyMove(b: Board, dir: number): Board {
+  //@ verify
+  //@ requires b.length === SIZE
+  //@ ensures \result.length === b.length
   const out: number[] = b.slice()
   if (dir === LEFT || dir === RIGHT) {
     for (let r = 0; r < N; r++) {
+      //@ invariant 0 <= r && r <= N
+      //@ invariant out.length === b.length
       let line = getRow(b, r)
       if (dir === RIGHT) line = reversed(line)
       let s = slideLine(line)
       if (dir === RIGHT) s = reversed(s)
-      for (let c = 0; c < N; c++) out[r * N + c] = s[c]
+      for (let c = 0; c < N; c++) {
+        //@ invariant 0 <= c && c <= N
+        //@ invariant out.length === b.length
+        out[r * N + c] = s[c]
+      }
     }
   } else {
     for (let c = 0; c < N; c++) {
+      //@ invariant 0 <= c && c <= N
+      //@ invariant out.length === b.length
       let line = getCol(b, c)
       if (dir === DOWN) line = reversed(line)
       let s = slideLine(line)
       if (dir === DOWN) s = reversed(s)
-      for (let r = 0; r < N; r++) out[r * N + c] = s[r]
+      for (let r = 0; r < N; r++) {
+        //@ invariant 0 <= r && r <= N
+        //@ invariant out.length === b.length
+        out[r * N + c] = s[r]
+      }
     }
   }
   return out
@@ -206,6 +243,7 @@ export function maxTile(b: Board): number {
 }
 
 export function boardSum(b: Board): number {
+  //@ verify
   let s = 0
   for (let i = 0; i < b.length; i++) s = s + b[i]
   return s

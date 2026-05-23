@@ -74,29 +74,51 @@ unconfigured backend degrades to local-only, it never breaks play.
 
 ## Verification status
 
-This is a **work in progress**.
+This is a **work in progress**, verified with LemmaScript
+(`../LemmaScript/tools/check.sh dafny`, files in `LemmaScript-files.txt`):
+annotated TypeScript is the source of truth and `lsc` generates the Dafny proofs.
+Every `.dfy` is additions-only over its generated `.dfy.gen` (`lsc check` enforces
+this), with **0 `assume`s and 0 axioms**.
 
-**Proven in Dafny** (`../LemmaScript/tools/check.sh dafny`, files in
-`LemmaScript-files.txt`): the 2048 merge core `slideLine`
-(`src/games/g2048/engine.ts` → `engine.dfy`) carries laws **L1–L4** —
-length preservation, **L2 conservation** (`sum` preserved), **L3 no-double-merge**
-(`2·nonzeros(result) ≥ nonzeros(line)` and `≤`, so `[4,4,4,4] → [8,8,0,0]` is
-forced), and **L4 packing** (tiles form a prefix). 12 verification conditions,
-0 errors, **0 `assume`s, 0 axioms**; the `.dfy` is additions-only over the
-generated `.dfy.gen` (`lsc check` enforces this). The proof rests on prefix-sum /
-prefix-count append lemmas; L3's centerpiece is the quantifier-free merge
-invariant `2·|out| ≥ tilesConsumed`.
+**The recorder — the platform's promise** (`src/platform/replay_core.ts`, 9 VCs,
+0 errors). Proven **game-agnostically**: the game's `step` and `legalActions` are
+opaque higher-order parameters, so the theorems hold for *any* `GameSpec`.
 
-**Runtime-checked, formal proof still to come** (`npx tsx test/smoke.ts`): board-level
-conservation over `applyMove`, and the platform properties **P1/P2** (replay
-reproduces 200 episodes; tampered traces rejected).
+- **P1 reproducibility** — `statesFrom(step, s, actions)` reconstructs the exact
+  trajectory: `\result[0] === s` and `\result[i+1] === step(\result[i], actions[i])`.
+  An episode is reconstructable from (start, action-log) alone.
+- **P2 validity + tamper rejection** — `validateFrom` returns true only if the
+  recorded states *chain*: `befores[i+1] === step(befores[i], actions[i])`. A forged
+  `before[i]` breaks the chain, so it is rejected. (This is the teeth.)
+- **P4 legality** — validation implies `legal(befores[i], actions[i])` at every ply.
+- **Completeness** — `genuinePlayValidates`: a real play (states that chain, all
+  actions legal) *always* validates. So the checker is sound **and** complete — it
+  rejects exactly the tampered/illegal traces and never a faithful one.
+- **P3 append-only** is enforced at the database by `PRIMARY KEY (game_id, ply)`,
+  not in code.
 
-**Known gaps / next:** board-level `applyMove` is blocked on lsc support for
-`number[]` type aliases and `.slice()`; **L5** (`canMove ⇔ board changes`) follows
-it. The platform **P1–P4** will be a hand-written Dafny fold theorem over an
-abstract `step` (a generic `GameSpec<S,A>` is closures + generics, which the
-LemmaScript tech preview doesn't yet support). The **equality** plug-in reuses
-its existing 753-VC proofs.
+*Trust boundary:* these are proofs of the verified core. Production
+`validateEpisode` (`src/platform/replay.ts`) still compares encoded states via
+canonical JSON over the wire; the remaining step is to decode typed states and
+delegate to `validateFrom` (one new `GameSpec.decodeState`), putting the verified
+core on the live ingest path.
+
+**The 2048 engine** (`src/games/g2048/engine.ts`, 17 VCs, 0 errors). The merge core
+`slideLine` carries laws **L1–L4** — length, **L2 conservation** (`sum` preserved),
+**L3 no-double-merge** (`2·nonzeros(result) ≥ nonzeros(line)` and `≤`, so
+`[4,4,4,4] → [8,8,0,0]` is forced), and **L4 packing** (tiles form a prefix); its
+centerpiece is the quantifier-free merge invariant `2·|out| ≥ tilesConsumed`.
+`applyMove` carries **board-level length preservation** (every move returns a
+16-cell board), with `getRow`/`getCol`/`reversed`/`boardSum` verified.
+
+**Runtime-checked** (`npx tsx test/smoke.ts`): board-level conservation over
+`applyMove`, over 200 episodes.
+
+**Next.** Board-level conservation `boardSum(applyMove(b,dir)) === boardSum(b)` —
+the slide laws are proven per-line, so the board-level lift is index-bookkeeping
+over the flattened board; **L5** (`canMove ⇔ board changes`) follows it. Wiring the
+verified recorder core into production `validateEpisode`. The **equality** plug-in
+reuses its existing 753-VC proofs.
 
 ## Run it
 
