@@ -1,0 +1,19 @@
+name = "trace-solo"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+# D1 — the integrity layer. Create it once, then paste the id here:
+#   npx wrangler d1 create trace-solo
+#   npx wrangler d1 execute trace-solo --remote --file=worker/schema.sql
+[[d1_databases]]
+binding = "DB"
+database_name = "trace-solo"
+database_id = "REPLACE_WITH_D1_ID"
+
+# R2 — the corpus / distribution layer (optional). The Worker skips R2 writes
+# cleanly if this binding is absent, so you can ship D1-only and flip this on
+# the day you want a public, zero-egress dataset:
+#   npx wrangler r2 bucket create trace-solo-corpus
+# [[r2_buckets]]
+# binding = "CORPUS"
+# bucket_name = "trace-solo-corpus"
