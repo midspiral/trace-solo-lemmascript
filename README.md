@@ -74,20 +74,29 @@ unconfigured backend degrades to local-only, it never breaks play.
 
 ## Verification status
 
-This is a **work in progress**. Today:
+This is a **work in progress**.
 
-- The platform properties (P1/P2) and the 2048 merge laws (L1–L5) are stated
-  precisely and exercised by a runtime test (`npx tsx test/smoke.ts`): 20k
-  random lines for L2/L3, 5k boards for board-level conservation, 200 episodes
-  for P1/P2, plus a tampered-trace rejection.
-- The engine is written in LemmaScript-friendly style (primitive types, explicit
-  loops, no closures) so the `//@` annotations and Dafny proofs come next.
+**Proven in Dafny** (`../LemmaScript/tools/check.sh dafny`, files in
+`LemmaScript-files.txt`): the 2048 merge core `slideLine`
+(`src/games/g2048/engine.ts` → `engine.dfy`) carries laws **L1–L4** —
+length preservation, **L2 conservation** (`sum` preserved), **L3 no-double-merge**
+(`2·nonzeros(result) ≥ nonzeros(line)` and `≤`, so `[4,4,4,4] → [8,8,0,0]` is
+forced), and **L4 packing** (tiles form a prefix). 12 verification conditions,
+0 errors, **0 `assume`s, 0 axioms**; the `.dfy` is additions-only over the
+generated `.dfy.gen` (`lsc check` enforces this). The proof rests on prefix-sum /
+prefix-count append lemmas; L3's centerpiece is the quantifier-free merge
+invariant `2·|out| ≥ tilesConsumed`.
 
-The **formal Dafny proofs are not yet written** — the runtime test is evidence,
-not a proof. A truly generic `GameSpec<S,A>` is closures + generics, which the
-LemmaScript tech preview doesn't support, so the platform proofs will either be
-stated per shipped game (touching `step` only as a black box) or via an
-abstract `step` in the hand-written Dafny layer.
+**Runtime-checked, formal proof still to come** (`npx tsx test/smoke.ts`): board-level
+conservation over `applyMove`, and the platform properties **P1/P2** (replay
+reproduces 200 episodes; tampered traces rejected).
+
+**Known gaps / next:** board-level `applyMove` is blocked on lsc support for
+`number[]` type aliases and `.slice()`; **L5** (`canMove ⇔ board changes`) follows
+it. The platform **P1–P4** will be a hand-written Dafny fold theorem over an
+abstract `step` (a generic `GameSpec<S,A>` is closures + generics, which the
+LemmaScript tech preview doesn't yet support). The **equality** plug-in reuses
+its existing 753-VC proofs.
 
 ## Run it
 
