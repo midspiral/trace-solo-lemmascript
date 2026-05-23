@@ -6,7 +6,8 @@
 
 import { slideLine, applyMove, boardSum, LEFT, RIGHT, UP, DOWN } from '../src/games/g2048/engine'
 import { game2048 } from '../src/games/g2048/spec'
-import { replayStates, validateEpisode } from '../src/platform/replay'
+import { validateEpisode } from '../src/platform/replay'
+import { statesFrom } from '../src/platform/replay_core'
 import { canonicalJSON, Episode, TraceRecord } from '../src/platform/spec'
 
 let failures = 0
@@ -99,9 +100,10 @@ for (let seed = 1; seed <= 200; seed++) {
     allValid = false
     console.log(`    seed ${seed}: ${v.reason}`)
   }
-  // P1: replay from (seed, actions) reproduces every recorded stateBefore
+  // P1: replay from (seed, actions) reproduces every recorded stateBefore.
+  // statesFrom is the VERIFIED core function (game ops passed as params).
   const actions = ep.records.map((r) => game2048.decodeAction(r.action))
-  const states = replayStates(game2048, seed, actions)
+  const states = statesFrom(game2048.step, game2048.init(seed), actions)
   for (let i = 0; i < ep.records.length; i++) {
     if (canonicalJSON(game2048.encodeState(states[i])) !== canonicalJSON(ep.records[i].stateBefore)) {
       replayExact = false

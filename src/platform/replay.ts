@@ -1,26 +1,20 @@
-// Replay + faithfulness checking — the heart of the platform's promise.
+// Replay validation — the heart of the platform's promise, now backed by the
+// VERIFIED core in replay_core.ts.
 //
-// P1 (Reproducibility): replayStates(spec, seed, actions) reconstructs the exact
-//   sequence of states an episode passed through, from (seed, action-log) alone.
-// P2 (Trajectory validity): validateEpisode confirms a recorded episode is a real
-//   play — each record's stateBefore equals the state the engine actually reaches.
+// validateEpisode re-derives a recorded episode from (seed, actions) and accepts
+// it only if every recorded `stateBefore` matches and every action was legal —
+// the faithfulness decision is delegated to the verified `validateFrom` (P2 + P4
+// + tamper rejection). The Worker runs this on ingest, so the central corpus
+// contains only provably-faithful, reproducible trajectories. Same code, client
+// and server.
 //
-// The Worker runs validateEpisode on ingest, so the central corpus contains only
-// provably-faithful, reproducible trajectories. Same code, client and server.
+// State equality must be STRUCTURAL. JS `===` on objects is reference equality,
+// while the verified core is proven over structural equality, so we run the core
+// over the canonical-JSON ENCODING of states (S = string): there `===` is string
+// equality, which is structural and matches the model. See LS_TODO.md #8.
 
 import { GameSpec, Episode, canonicalJSON } from './spec'
-
-/** The state observed before each action, in order, given seed + decoded actions. */
-export function replayStates<S, A>(spec: GameSpec<S, A>, seed: number, actions: A[]): S[] {
-  const states: S[] = []
-  let s = spec.init(seed)
-  for (let i = 0; i < actions.length; i++) {
-    states.push(s)
-    s = spec.step(s, actions[i])
-  }
-  states.push(s) // final state after the last action
-  return states
-}
+import { validateFrom } from './replay_core'
 
 export interface ValidationResult {
   ok: boolean
@@ -31,27 +25,47 @@ export interface ValidationResult {
 
 /**
  * Re-derive the episode from (seed, actions) and check every recorded
- * stateBefore matches. Also checks ply contiguity (0,1,2,…). This is what makes
- * "verified training data" concrete: a trace that fails this is rejected.
+ * stateBefore matches and every action was legal. The accept/reject decision is
+ * the verified `validateFrom`; on rejection we scan once more only to report
+ * which ply diverged (a cosmetic diagnostic — the verified core already decided).
  */
 export function validateEpisode<S, A>(spec: GameSpec<S, A>, ep: Episode): ValidationResult {
+  // Ply contiguity (0,1,2,…). Cheap structural precheck before the core.
   for (let i = 0; i < ep.records.length; i++) {
     if (ep.records[i].ply !== i) {
       return { ok: false, divergedAtPly: i, reason: `ply ${ep.records[i].ply} out of order (expected ${i})` }
     }
   }
-  let s = spec.init(ep.seed)
-  for (let i = 0; i < ep.records.length; i++) {
-    const rec = ep.records[i]
-    if (canonicalJSON(spec.encodeState(s)) !== canonicalJSON(rec.stateBefore)) {
+
+  // Canonical-string view of states (S = string) so structural state equality is
+  // plain string `===`, matching the verified model.
+  const canon = (s: S): string => canonicalJSON(spec.encodeState(s))
+  const stepStr = (cur: string, a: A): string => canon(spec.step(spec.decodeState(JSON.parse(cur)), a))
+  const legalStr = (cur: string, a: A): boolean => {
+    const s = spec.decodeState(JSON.parse(cur))
+    const enc = canonicalJSON(spec.encodeAction(a))
+    return spec.legalActions(s).some((la) => canonicalJSON(spec.encodeAction(la)) === enc)
+  }
+
+  const start = canon(spec.init(ep.seed))
+  const befores = ep.records.map((r) => canonicalJSON(r.stateBefore))
+  const actions = ep.records.map((r) => spec.decodeAction(r.action))
+
+  // Verified faithfulness decision (P2 chaining + P4 legality + tamper rejection).
+  if (validateFrom(stepStr, legalStr, start, befores, actions)) {
+    return { ok: true, divergedAtPly: -1, reason: 'faithful' }
+  }
+
+  // Rejected — locate the first divergence for the error message.
+  let cur = start
+  for (let i = 0; i < befores.length; i++) {
+    if (befores[i] !== cur) {
       return { ok: false, divergedAtPly: i, reason: `stateBefore diverged at ply ${i}` }
     }
-    const legal = spec.legalActions(s)
-    const a = spec.decodeAction(rec.action)
-    if (!legal.some((la) => canonicalJSON(spec.encodeAction(la)) === canonicalJSON(rec.action))) {
+    if (!legalStr(cur, actions[i])) {
       return { ok: false, divergedAtPly: i, reason: `illegal action at ply ${i}` } // P4
     }
-    s = spec.step(s, a)
+    cur = stepStr(cur, actions[i])
   }
-  return { ok: true, divergedAtPly: -1, reason: 'faithful' }
+  return { ok: false, divergedAtPly: -1, reason: 'rejected' }
 }

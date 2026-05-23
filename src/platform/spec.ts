@@ -30,6 +30,9 @@ export interface GameSpec<S, A> {
   encodeAction(a: A): unknown
   /** Inverse of encodeAction — needed to replay a recorded trace. */
   decodeAction(j: unknown): A
+  /** Inverse of encodeState — reconstruct a typed state from its encoded form.
+   *  Lets validation re-derive states (step then re-encode) when checking a trace. */
+  decodeState(j: unknown): S
 }
 
 /** One recorded transition: the state before, the action taken, and timing. */

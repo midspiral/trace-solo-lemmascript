@@ -105,4 +105,9 @@ export const game2048: GameSpec<G2048State, G2048Action> = {
   decodeAction(j: unknown): G2048Action {
     return NAME_DIR[String(j)]
   },
+
+  decodeState(j: unknown): G2048State {
+    const o = j as { board: number[]; score: number; rng: number; won: boolean }
+    return { board: o.board.slice(), score: o.score, rng: o.rng, won: o.won }
+  },
 }
