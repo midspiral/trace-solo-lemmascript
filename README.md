@@ -33,6 +33,23 @@ central corpus contains only provably-faithful trajectories — the verification
 is the thing that makes "verified training data" mean something, not a feature
 bolted onto the side.
 
+Two things make this more than a verification checkbox:
+
+- **One proof, every game.** `step` and `legalActions` are *opaque parameters* in
+  the proof, not 2048-specific. So a single theorem covers every game that will
+  ever plug in — the recorder's guarantee is established once, for the whole
+  platform, not re-proved per game.
+- **The recorder and the validator provably agree.** It's proven *both*
+  directions: a validated trace is necessarily faithful and legal (sound, and the
+  teeth — tampering breaks the chain), *and* any genuine play necessarily
+  validates (complete) — including the plays the recorder itself emits (record the
+  state, then step). So `record → faithful → reproducible` is a closed loop, not a
+  hope: what we collect is exactly what the validator accepts.
+
+That makes "verified training data" a statement about the system being
+internally coherent — resting on one small, explicitly named trust boundary
+(`decodeState` inverts `encodeState`; see *Verification status*), not on faith.
+
 ## How it works
 
 ```
