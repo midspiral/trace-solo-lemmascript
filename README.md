@@ -80,7 +80,7 @@ annotated TypeScript is the source of truth and `lsc` generates the Dafny proofs
 Every `.dfy` is additions-only over its generated `.dfy.gen` (`lsc check` enforces
 this), with **0 `assume`s and 0 axioms**.
 
-**The recorder — the platform's promise** (`src/platform/replay_core.ts`, 9 VCs,
+**The recorder — the platform's promise** (`src/platform/replay_core.ts`, 14 VCs,
 0 errors). Proven **game-agnostically**: the game's `step` and `legalActions` are
 opaque higher-order parameters, so the theorems hold for *any* `GameSpec`.
 
@@ -89,19 +89,26 @@ opaque higher-order parameters, so the theorems hold for *any* `GameSpec`.
   An episode is reconstructable from (start, action-log) alone.
 - **P2 validity + tamper rejection** — `validateFrom` returns true only if the
   recorded states *chain*: `befores[i+1] === step(befores[i], actions[i])`. A forged
-  `before[i]` breaks the chain, so it is rejected. (This is the teeth.)
+  `before[i]` breaks the chain, so it is rejected. (This is the teeth.) It is also
+  *total* — a length-mismatched episode is rejected, not assumed away.
 - **P4 legality** — validation implies `legal(befores[i], actions[i])` at every ply.
 - **Completeness** — `genuinePlayValidates`: a real play (states that chain, all
   actions legal) *always* validates. So the checker is sound **and** complete — it
   rejects exactly the tampered/illegal traces and never a faithful one.
+- **Producer guarantee (loop closure)** — `recordedPlayValidates`: an episode the
+  recorder *emits* (record the current state, then step — `recordBefores`) with
+  legal actions *always* validates. So what the recorder produces is exactly what
+  the validator accepts: record → genuine → validates → reproducible.
 - **P3 append-only** is enforced at the database by `PRIMARY KEY (game_id, ply)`,
   not in code.
 
-*Trust boundary:* these are proofs of the verified core. Production
-`validateEpisode` (`src/platform/replay.ts`) still compares encoded states via
-canonical JSON over the wire; the remaining step is to decode typed states and
-delegate to `validateFrom` (one new `GameSpec.decodeState`), putting the verified
-core on the live ingest path.
+The verified core is **on the live path**: production `validateEpisode`
+(`src/platform/replay.ts`) and the ingest Worker delegate the accept/reject
+decision to `validateFrom`. Because JS `===` on objects is reference equality
+while the proof is over structural equality, the core is instantiated over the
+canonical-JSON *string* encoding of states (where `===` is structural). *Trust
+boundary:* `GameSpec.decodeState` faithfully inverts `encodeState`, and
+`canonicalJSON` is a stable structural encoding — everything downstream is verified.
 
 **The 2048 engine** (`src/games/g2048/engine.ts`, 17 VCs, 0 errors). The merge core
 `slideLine` carries laws **L1–L4** — length, **L2 conservation** (`sum` preserved),

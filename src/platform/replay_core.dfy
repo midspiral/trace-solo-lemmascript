@@ -26,7 +26,6 @@ lemma statesFrom_ensures<S, A>(step: (S, A) -> S, s: S, actions: seq<A>)
       ensures ([s] + rest)[i + 1] == step(([s] + rest)[i], actions[i])
     {
       if (i == 0) {
-        // ([s]+rest)[1] == rest[0] == step(s, actions[0]) == step(([s]+rest)[0], actions[0])
       } else {
         assert ([s] + rest)[i + 1] == rest[i];
         assert ([s] + rest)[i] == rest[i - 1];
@@ -37,31 +36,31 @@ lemma statesFrom_ensures<S, A>(step: (S, A) -> S, s: S, actions: seq<A>)
 }
 
 function validateFrom<S(==), A(==)>(step: (S, A) -> S, legal: (S, A) -> bool, s: S, befores: seq<S>, actions: seq<A>): bool
-  requires (|befores| == |actions|)
   decreases |actions|
 {
-  ((|actions| == 0) || (if (befores[0] != s) then false else (if !(legal(s, actions[0])) then false else validateFrom(step, legal, step(s, actions[0]), befores[1..], actions[1..]))))
+  ((|actions| == 0) || (if (|befores| == 0) then false else (if (befores[0] != s) then false else (if !(legal(s, actions[0])) then false else validateFrom(step, legal, step(s, actions[0]), befores[1..], actions[1..])))))
 }
 
 lemma validateFrom_ensures<S, A>(step: (S, A) -> S, legal: (S, A) -> bool, s: S, befores: seq<S>, actions: seq<A>)
-  requires (|befores| == |actions|)
-  ensures ((validateFrom(step, legal, s, befores, actions) == true) ==> (|actions| > 0) ==> (befores[0] == s))
-  ensures ((validateFrom(step, legal, s, befores, actions) == true) ==> forall i: int :: ((0 <= i) ==> ((i + 1) < |actions|) ==> (befores[(i + 1)] == step(befores[i], actions[i]))))
-  ensures ((validateFrom(step, legal, s, befores, actions) == true) ==> forall i: int :: ((0 <= i) ==> (i < |actions|) ==> legal(befores[i], actions[i])))
+  ensures ((validateFrom(step, legal, s, befores, actions) == true) ==> (|actions| <= |befores|))
+  ensures ((validateFrom(step, legal, s, befores, actions) == true) ==> (|actions| > 0) ==> ((|befores| > 0) && (befores[0] == s)))
+  ensures ((validateFrom(step, legal, s, befores, actions) == true) ==> forall i: int :: ((0 <= i) ==> ((i + 1) < |actions|) ==> (((i + 1) < |befores|) && (befores[(i + 1)] == step(befores[i], actions[i])))))
+  ensures ((validateFrom(step, legal, s, befores, actions) == true) ==> forall i: int :: ((0 <= i) ==> (i < |actions|) ==> ((i < |befores|) && legal(befores[i], actions[i]))))
   decreases |actions|
 {
   // --- proof addition: induction; a validated episode chains from s (P2) and
-  // is legal at every ply (P4). Chaining is the tamper-rejection teeth: a
-  // forged before[i] breaks befores[i] == step(befores[i-1], ...), so !validate.
+  // is legal at every ply (P4). Chaining is the tamper-rejection teeth.
   if (|actions| == 0) {
+  } else if (|befores| == 0) {
   } else if (befores[0] != s) {
   } else if (!legal(s, actions[0])) {
   } else {
     validateFrom_ensures(step, legal, step(s, actions[0]), befores[1..], actions[1..]); // IH on the tail
     if (validateFrom(step, legal, s, befores, actions) == true) {
       assert validateFrom(step, legal, step(s, actions[0]), befores[1..], actions[1..]) == true;
-      forall i | 0 <= i && (i + 1) < |actions|
-        ensures befores[i + 1] == step(befores[i], actions[i])
+      assert |actions| <= |befores|;
+      forall i {:trigger befores[i + 1]} | 0 <= i && (i + 1) < |actions|
+        ensures (i + 1) < |befores| && befores[i + 1] == step(befores[i], actions[i])
       {
         if (i == 0) {
           assert befores[i + 1] == befores[1..][0];
@@ -71,8 +70,8 @@ lemma validateFrom_ensures<S, A>(step: (S, A) -> S, legal: (S, A) -> bool, s: S,
           assert actions[i] == actions[1..][i - 1];
         }
       }
-      forall i | 0 <= i < |actions|
-        ensures legal(befores[i], actions[i])
+      forall i {:trigger befores[i]} | 0 <= i < |actions|
+        ensures i < |befores| && legal(befores[i], actions[i])
       {
         if (i == 0) {
         } else {
@@ -105,8 +104,8 @@ lemma genuinePlayValidates_ensures<S, A>(step: (S, A) -> S, legal: (S, A) -> boo
   // --- proof addition: a genuine (chained + legal) play always validates ---
   if (|actions| == 0) {
   } else {
-    // The tail (befores[1..], actions[1..]) is itself a genuine play from step(s, a0).
-    assert |actions| > 1 ==> befores[1] == step(befores[0], actions[0]); // chaining at i=0
+    assert befores[0] == s;
+    assert legal(befores[0], actions[0]);
     assert forall j: int :: (0 <= j ==> (j + 1) < |actions[1..]| ==> befores[1..][j + 1] == step(befores[1..][j], actions[1..][j])) by {
       forall j | 0 <= j && (j + 1) < |actions[1..]|
         ensures befores[1..][j + 1] == step(befores[1..][j], actions[1..][j])
@@ -126,5 +125,60 @@ lemma genuinePlayValidates_ensures<S, A>(step: (S, A) -> S, legal: (S, A) -> boo
     }
     genuinePlayValidates_ensures(step, legal, step(s, actions[0]), befores[1..], actions[1..]); // IH
     assert validateFrom(step, legal, step(s, actions[0]), befores[1..], actions[1..]) == true;
+  }
+}
+
+function recordBefores<S(==), A(==)>(step: (S, A) -> S, s: S, actions: seq<A>): seq<S>
+  decreases |actions|
+{
+  if (|actions| == 0) then
+    []
+  else
+    ([s] + recordBefores(step, step(s, actions[0]), actions[1..]))
+}
+
+lemma recordBefores_ensures<S, A>(step: (S, A) -> S, s: S, actions: seq<A>)
+  ensures (|recordBefores(step, s, actions)| == |actions|)
+  decreases |actions|
+{
+  // --- proof addition: length by induction ---------------------------------
+  if (|actions| == 0) {
+  } else {
+    recordBefores_ensures(step, step(s, actions[0]), actions[1..]);
+  }
+}
+
+function allLegalFrom<S(==), A(==)>(step: (S, A) -> S, legal: (S, A) -> bool, s: S, actions: seq<A>): bool
+  decreases |actions|
+{
+  ((|actions| == 0) || (if !(legal(s, actions[0])) then false else allLegalFrom(step, legal, step(s, actions[0]), actions[1..])))
+}
+
+function recordedPlayValidates<S(==), A(==)>(step: (S, A) -> S, legal: (S, A) -> bool, s: S, actions: seq<A>): bool
+  requires allLegalFrom(step, legal, s, actions)
+{
+  validateFrom(step, legal, s, recordBefores(step, s, actions), actions)
+}
+
+lemma recordedPlayValidates_ensures<S, A>(step: (S, A) -> S, legal: (S, A) -> bool, s: S, actions: seq<A>)
+  requires allLegalFrom(step, legal, s, actions)
+  ensures (recordedPlayValidates(step, legal, s, actions) == true)
+  decreases |actions|
+{
+  // --- proof addition: the recorder's output always validates (loop closure).
+  // Lockstep induction over recordBefores / allLegalFrom / validateFrom.
+  if (|actions| == 0) {
+  } else {
+    assert legal(s, actions[0]);                                             // from allLegalFrom head
+    assert allLegalFrom(step, legal, step(s, actions[0]), actions[1..]);     // from allLegalFrom tail
+    recordBefores_ensures(step, s, actions);
+    recordedPlayValidates_ensures(step, legal, step(s, actions[0]), actions[1..]); // IH
+    var br := recordBefores(step, s, actions);
+    assert br == [s] + recordBefores(step, step(s, actions[0]), actions[1..]);
+    assert br[0] == s && |br| > 0;
+    assert br[1..] == recordBefores(step, step(s, actions[0]), actions[1..]);
+    // validateFrom(step,legal,s,br,actions) unfolds (|br|>0, br[0]==s, legal(s,a0))
+    //   to validateFrom(step,legal,step(s,a0), br[1..], actions[1..])
+    //   == recordedPlayValidates(step,legal,step(s,a0),actions[1..]) == true (IH)
   }
 }
