@@ -16,8 +16,8 @@ const DOWN: int := 3
 
 // --- proof additions -------------------------------------------------------
 // L2 conservation uses sumTo (prefix sum); L3 no-double-merge uses nzTo
-// (prefix count of nonzeros). Each has a prefix-stability lemma and an
-// append lemma — the workhorses that let us reason about the seq-building loops.
+// (prefix count of nonzeros). colSumTo is the strided column analogue of sumTo,
+// used to lift per-line conservation to the whole board.
 
 ghost function sumTo(s: seq<int>, n: int): int
   requires 0 <= n <= |s|
@@ -55,6 +55,59 @@ lemma NzAppend(s: seq<int>, x: int)
   ensures nzTo(s + [x], |s| + 1) == nzTo(s, |s|) + (if x != 0 then 1 else 0)
 {
   NzPrefix(s, x, |s|);
+}
+
+// Sum of column c over the first n rows: b[0*N+c] + b[1*N+c] + ... + b[(n-1)*N+c].
+ghost function colSumTo(b: seq<int>, c: int, n: int): int
+  requires |b| == SIZE
+  requires 0 <= c < N
+  requires 0 <= n <= N
+{
+  if n == 0 then 0 else colSumTo(b, c, n - 1) + b[(n - 1) * N + c]
+}
+
+// Cell (r,c) of a board — a trigger-friendly wrapper for flat indexing, so the
+// "untouched columns" quantifiers trigger on cell(...) instead of on `r*N+c`
+// (Dafny won't pick a multiplication term as a trigger).
+ghost function cell(b: seq<int>, r: int, c: int): int
+  requires |b| == SIZE
+  requires 0 <= r < N
+  requires 0 <= c < N
+{
+  b[r * N + c]
+}
+
+// Updating index i leaves every prefix ending at or before i unchanged.
+lemma SumUpdateBeyond(t: seq<int>, i: int, v: int, n: int)
+  requires 0 <= n <= i < |t|
+  ensures sumTo(t[i := v], n) == sumTo(t, n)
+  decreases n
+{
+  if n == 0 { } else { SumUpdateBeyond(t, i, v, n - 1); }
+}
+
+// Updating index i shifts the whole sum by (v - t[i]).
+lemma SumToUpdateUpTo(t: seq<int>, i: int, v: int, n: int)
+  requires 0 <= i < n <= |t|
+  ensures sumTo(t[i := v], n) == sumTo(t, n) - t[i] + v
+  decreases n
+{
+  if n == i + 1 { SumUpdateBeyond(t, i, v, i); } else { SumToUpdateUpTo(t, i, v, n - 1); }
+}
+
+lemma SumToUpdate(t: seq<int>, i: int, v: int)
+  requires 0 <= i < |t|
+  ensures sumTo(t[i := v], |t|) == sumTo(t, |t|) - t[i] + v
+{
+  SumToUpdateUpTo(t, i, v, |t|);
+}
+
+// The flat index r*N+c is unique per (row, column) for columns in [0, N).
+// This is what lets a single-cell write leave other columns undisturbed.
+lemma IndexInjective(r1: int, c1: int, r2: int, c2: int)
+  requires 0 <= c1 < N && 0 <= c2 < N && 0 <= r1 && 0 <= r2
+  ensures (r1 * N + c1 == r2 * N + c2) ==> (r1 == r2 && c1 == c2)
+{
 }
 // ---------------------------------------------------------------------------
 
@@ -130,6 +183,7 @@ method getRow(b: seq<int>, r: int) returns (res: seq<int>)
   requires (0 <= r)
   requires (r < N)
   ensures (|res| == N)
+  ensures (sumTo(res, |res|) == (sumTo(b, ((r * N) + N)) - sumTo(b, (r * N))))
 {
   var out: seq<int> := [];
   var c := 0;
@@ -137,7 +191,9 @@ method getRow(b: seq<int>, r: int) returns (res: seq<int>)
     invariant (0 <= c)
     invariant (c <= N)
     invariant (|out| == c)
+    invariant (sumTo(out, |out|) == (sumTo(b, ((r * N) + c)) - sumTo(b, (r * N))))
   {
+    SumAppend(out, b[((r * N) + c)]);
     out := (out + [b[((r * N) + c)]]);
     c := (c + 1);
   }
@@ -149,6 +205,7 @@ method getCol(b: seq<int>, c: int) returns (res: seq<int>)
   requires (0 <= c)
   requires (c < N)
   ensures (|res| == N)
+  ensures (sumTo(res, |res|) == colSumTo(b, c, N))
 {
   var out: seq<int> := [];
   var r := 0;
@@ -156,7 +213,9 @@ method getCol(b: seq<int>, c: int) returns (res: seq<int>)
     invariant (0 <= r)
     invariant (r <= N)
     invariant (|out| == r)
+    invariant (sumTo(out, |out|) == colSumTo(b, c, r))
   {
+    SumAppend(out, b[((r * N) + c)]);
     out := (out + [b[((r * N) + c)]]);
     r := (r + 1);
   }
@@ -165,6 +224,7 @@ method getCol(b: seq<int>, c: int) returns (res: seq<int>)
 
 method reversed(a: seq<int>) returns (res: seq<int>)
   ensures (|res| == |a|)
+  ensures (sumTo(res, |res|) == sumTo(a, |a|))
 {
   var out: seq<int> := [];
   var i := (|a| - 1);
@@ -172,7 +232,9 @@ method reversed(a: seq<int>) returns (res: seq<int>)
     invariant (-1 <= i)
     invariant (i < |a|)
     invariant (|out| == ((|a| - 1) - i))
+    invariant (sumTo(out, |out|) == (sumTo(a, |a|) - sumTo(a, (i + 1))))
   {
+    SumAppend(out, a[i]);
     out := (out + [a[i]]);
     i := (i - 1);
   }
@@ -182,6 +244,7 @@ method reversed(a: seq<int>) returns (res: seq<int>)
 method applyMove(b: seq<int>, dir: int) returns (res: seq<int>)
   requires (|b| == SIZE)
   ensures (|res| == |b|)
+  ensures (sumTo(res, |res|) == sumTo(b, |b|))
 {
   var out := b;
   if ((dir == LEFT) || (dir == RIGHT)) {
@@ -190,6 +253,8 @@ method applyMove(b: seq<int>, dir: int) returns (res: seq<int>)
       invariant (0 <= r)
       invariant (r <= N)
       invariant (|out| == |b|)
+      invariant (sumTo(out, (r * N)) == sumTo(b, (r * N)))
+      invariant forall k: int :: (((r * N) <= k) ==> (k < SIZE) ==> (out[k] == b[k]))
     {
       var i_t0 := getRow(b, r);
       var line := i_t0;
@@ -206,7 +271,15 @@ method applyMove(b: seq<int>, dir: int) returns (res: seq<int>)
         invariant (0 <= c)
         invariant (c <= N)
         invariant (|out| == |b|)
+        invariant (|s| == N)
+        invariant (sumTo(s, |s|) == (sumTo(b, ((r * N) + N)) - sumTo(b, (r * N))))
+        invariant (sumTo(out, (r * N)) == sumTo(b, (r * N)))
+        invariant (sumTo(out, ((r * N) + c)) == (sumTo(b, (r * N)) + sumTo(s, c)))
+        invariant forall k: int :: ((((r * N) + c) <= k) ==> (k < SIZE) ==> (out[k] == b[k]))
       {
+        SumUpdateBeyond(out, ((r * N) + c), s[c], (r * N));
+        SumUpdateBeyond(out, ((r * N) + c), s[c], ((r * N) + c));
+        assert sumTo(s, c + 1) == sumTo(s, c) + s[c];
         out := out[((r * N) + c) := s[c]];
         c := (c + 1);
       }
@@ -218,6 +291,8 @@ method applyMove(b: seq<int>, dir: int) returns (res: seq<int>)
       invariant (0 <= c)
       invariant (c <= N)
       invariant (|out| == |b|)
+      invariant (sumTo(out, SIZE) == sumTo(b, SIZE))
+      invariant forall cc: int, rr: int :: ((c <= cc) ==> (cc < N) ==> (0 <= rr) ==> (rr < N) ==> (cell(out, rr, cc) == cell(b, rr, cc)))
     {
       var i_t2 := getCol(b, c);
       var line := i_t2;
@@ -234,7 +309,31 @@ method applyMove(b: seq<int>, dir: int) returns (res: seq<int>)
         invariant (0 <= r)
         invariant (r <= N)
         invariant (|out| == |b|)
+        invariant (|s| == N)
+        invariant (sumTo(s, |s|) == colSumTo(b, c, N))
+        invariant (sumTo(out, SIZE) == ((sumTo(b, SIZE) + sumTo(s, r)) - colSumTo(b, c, r)))
+        invariant forall rr: int :: ((r <= rr) ==> (rr < N) ==> (cell(out, rr, c) == cell(b, rr, c)))
+        invariant forall cc: int, rr2: int :: (((c + 1) <= cc) ==> (cc < N) ==> (0 <= rr2) ==> (rr2 < N) ==> (cell(out, rr2, cc) == cell(b, rr2, cc)))
       {
+        assert cell(out, r, c) == cell(b, r, c);
+        assert out[((r * N) + c)] == b[((r * N) + c)];
+        SumToUpdate(out, ((r * N) + c), s[r]);
+        assert sumTo(s, r + 1) == sumTo(s, r) + s[r];
+        assert colSumTo(b, c, r + 1) == colSumTo(b, c, r) + b[((r * N) + c)];
+        // Columns > c stay untouched: writing index r*N+c can't land in any other
+        // column (IndexInjective), so every other cell keeps its value.
+        forall cc2: int, rr3: int | ((c + 1) <= cc2) && (cc2 < N) && (0 <= rr3) && (rr3 < N)
+          ensures cell(out[((r * N) + c) := s[r]], rr3, cc2) == cell(b, rr3, cc2)
+        {
+          IndexInjective(rr3, cc2, r, c);
+          assert cell(out, rr3, cc2) == cell(b, rr3, cc2);
+        }
+        // Column c, rows > r stay untouched (their flat index strictly exceeds r*N+c).
+        forall rr4: int | ((r + 1) <= rr4) && (rr4 < N)
+          ensures cell(out[((r * N) + c) := s[r]], rr4, c) == cell(b, rr4, c)
+        {
+          assert cell(out, rr4, c) == cell(b, rr4, c);
+        }
         out := out[((r * N) + c) := s[r]];
         r := (r + 1);
       }
@@ -245,11 +344,14 @@ method applyMove(b: seq<int>, dir: int) returns (res: seq<int>)
 }
 
 method boardSum(b: seq<int>) returns (res: int)
+  ensures (res == sumTo(b, |b|))
 {
   var s := 0;
   var i := 0;
   while (i < |b|)
-    decreases (|b| - i)
+    invariant (0 <= i)
+    invariant (i <= |b|)
+    invariant (s == sumTo(b, i))
   {
     s := (s + b[i]);
     i := (i + 1);

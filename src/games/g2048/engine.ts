@@ -104,10 +104,12 @@ export function getRow(b: Board, r: number): number[] {
   //@ requires b.length === SIZE
   //@ requires 0 <= r && r < N
   //@ ensures \result.length === N
+  //@ ensures sumTo(\result, \result.length) === sumTo(b, r * N + N) - sumTo(b, r * N)
   const out: number[] = []
   for (let c = 0; c < N; c++) {
     //@ invariant 0 <= c && c <= N
     //@ invariant out.length === c
+    //@ invariant sumTo(out, out.length) === sumTo(b, r * N + c) - sumTo(b, r * N)
     out.push(b[r * N + c])
   }
   return out
@@ -118,10 +120,12 @@ export function getCol(b: Board, c: number): number[] {
   //@ requires b.length === SIZE
   //@ requires 0 <= c && c < N
   //@ ensures \result.length === N
+  //@ ensures sumTo(\result, \result.length) === colSumTo(b, c, N)
   const out: number[] = []
   for (let r = 0; r < N; r++) {
     //@ invariant 0 <= r && r <= N
     //@ invariant out.length === r
+    //@ invariant sumTo(out, out.length) === colSumTo(b, c, r)
     out.push(b[r * N + c])
   }
   return out
@@ -130,10 +134,12 @@ export function getCol(b: Board, c: number): number[] {
 export function reversed(a: number[]): number[] {
   //@ verify
   //@ ensures \result.length === a.length
+  //@ ensures sumTo(\result, \result.length) === sumTo(a, a.length)
   const out: number[] = []
   for (let i = a.length - 1; i >= 0; i--) {
     //@ invariant -1 <= i && i < a.length
     //@ invariant out.length === a.length - 1 - i
+    //@ invariant sumTo(out, out.length) === sumTo(a, a.length) - sumTo(a, i + 1)
     out.push(a[i])
   }
   return out
@@ -147,11 +153,14 @@ export function applyMove(b: Board, dir: number): Board {
   //@ verify
   //@ requires b.length === SIZE
   //@ ensures \result.length === b.length
+  //@ ensures sumTo(\result, \result.length) === sumTo(b, b.length)
   const out: number[] = b.slice()
   if (dir === LEFT || dir === RIGHT) {
     for (let r = 0; r < N; r++) {
       //@ invariant 0 <= r && r <= N
       //@ invariant out.length === b.length
+      //@ invariant sumTo(out, r * N) === sumTo(b, r * N)
+      //@ invariant forall(k, r * N <= k && k < SIZE ==> out[k] === b[k])
       let line = getRow(b, r)
       if (dir === RIGHT) line = reversed(line)
       let s = slideLine(line)
@@ -159,6 +168,11 @@ export function applyMove(b: Board, dir: number): Board {
       for (let c = 0; c < N; c++) {
         //@ invariant 0 <= c && c <= N
         //@ invariant out.length === b.length
+        //@ invariant s.length === N
+        //@ invariant sumTo(s, s.length) === sumTo(b, r * N + N) - sumTo(b, r * N)
+        //@ invariant sumTo(out, r * N) === sumTo(b, r * N)
+        //@ invariant sumTo(out, r * N + c) === sumTo(b, r * N) + sumTo(s, c)
+        //@ invariant forall(k, r * N + c <= k && k < SIZE ==> out[k] === b[k])
         out[r * N + c] = s[c]
       }
     }
@@ -166,6 +180,8 @@ export function applyMove(b: Board, dir: number): Board {
     for (let c = 0; c < N; c++) {
       //@ invariant 0 <= c && c <= N
       //@ invariant out.length === b.length
+      //@ invariant sumTo(out, SIZE) === sumTo(b, SIZE)
+      //@ invariant forall(cc, forall(rr, c <= cc && cc < N && 0 <= rr && rr < N ==> cell(out, rr, cc) === cell(b, rr, cc)))
       let line = getCol(b, c)
       if (dir === DOWN) line = reversed(line)
       let s = slideLine(line)
@@ -173,6 +189,11 @@ export function applyMove(b: Board, dir: number): Board {
       for (let r = 0; r < N; r++) {
         //@ invariant 0 <= r && r <= N
         //@ invariant out.length === b.length
+        //@ invariant s.length === N
+        //@ invariant sumTo(s, s.length) === colSumTo(b, c, N)
+        //@ invariant sumTo(out, SIZE) === sumTo(b, SIZE) + sumTo(s, r) - colSumTo(b, c, r)
+        //@ invariant forall(rr, r <= rr && rr < N ==> cell(out, rr, c) === cell(b, rr, c))
+        //@ invariant forall(cc, forall(rr2, c + 1 <= cc && cc < N && 0 <= rr2 && rr2 < N ==> cell(out, rr2, cc) === cell(b, rr2, cc)))
         out[r * N + c] = s[r]
       }
     }
@@ -244,7 +265,12 @@ export function maxTile(b: Board): number {
 
 export function boardSum(b: Board): number {
   //@ verify
+  //@ ensures \result === sumTo(b, b.length)
   let s = 0
-  for (let i = 0; i < b.length; i++) s = s + b[i]
+  for (let i = 0; i < b.length; i++) {
+    //@ invariant 0 <= i && i <= b.length
+    //@ invariant s === sumTo(b, i)
+    s = s + b[i]
+  }
   return s
 }

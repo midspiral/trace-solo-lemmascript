@@ -127,22 +127,22 @@ canonical-JSON *string* encoding of states (where `===` is structural). *Trust
 boundary:* `GameSpec.decodeState` faithfully inverts `encodeState`, and
 `canonicalJSON` is a stable structural encoding — everything downstream is verified.
 
-**The 2048 engine** (`src/games/g2048/engine.ts`, 17 VCs, 0 errors). The merge core
+**The 2048 engine** (`src/games/g2048/engine.ts`, 31 VCs, 0 errors). The merge core
 `slideLine` carries laws **L1–L4** — length, **L2 conservation** (`sum` preserved),
 **L3 no-double-merge** (`2·nonzeros(result) ≥ nonzeros(line)` and `≤`, so
 `[4,4,4,4] → [8,8,0,0]` is forced), and **L4 packing** (tiles form a prefix); its
 centerpiece is the quantifier-free merge invariant `2·|out| ≥ tilesConsumed`.
-`applyMove` carries **board-level length preservation** (every move returns a
-16-cell board), with `getRow`/`getCol`/`reversed`/`boardSum` verified.
 
-**Runtime-checked** (`npx tsx test/smoke.ts`): board-level conservation over
-`applyMove`, over 200 episodes.
+**Board-level conservation (L2):** `boardSum(applyMove(b,dir)) === boardSum(b)` — a
+move never creates or destroys tile mass — is now **proven for all four
+directions**, not just tested. The per-line `slideLine` conservation is lifted to
+the board by sum-decomposition: each row (or strided column) is replaced by its
+sum-preserving slide, and `applyMove` preserves the total across the flattened
+board. `applyMove` also carries **L1** length preservation; `getRow`/`getCol`/`reversed`
+expose their sums and `boardSum === sumTo` ties the executable sum to the spec sum.
 
-**Next.** Board-level conservation `boardSum(applyMove(b,dir)) === boardSum(b)` —
-the slide laws are proven per-line, so the board-level lift is index-bookkeeping
-over the flattened board; **L5** (`canMove ⇔ board changes`) follows it. Wiring the
-verified recorder core into production `validateEpisode`. The **equality** plug-in
-reuses its existing 753-VC proofs.
+**Next.** **L5** (`canMove ⇔ board changes`) — largely definitional. The **equality**
+plug-in reuses its existing decision-procedure proofs.
 
 ## Run it
 
