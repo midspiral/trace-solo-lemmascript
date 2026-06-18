@@ -1,6 +1,6 @@
 # trace-solo
 
-[![LemmaScript: verified](https://img.shields.io/badge/LemmaScript-verified-brightgreen)](https://github.com/midspiral/trace-solo-lemmascript/actions/workflows/lemmascript.yml)
+[![LemmaScript verified](https://img.shields.io/github/actions/workflow/status/midspiral/trace-solo-lemmascript/lemmascript.yml?branch=main&label=LemmaScript%20verified)](https://github.com/midspiral/trace-solo-lemmascript/actions/workflows/lemmascript.yml)
 
 
 A platform for collecting **reproducible training trajectories** from pure,
