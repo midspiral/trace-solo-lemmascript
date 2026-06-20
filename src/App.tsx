@@ -1,23 +1,36 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Session } from './platform/session'
-import { corpusStats, downloadCorpus, clearEpisodes } from './platform/recorder'
-import { syncEnabled } from './platform/sync'
-import { game2048 } from './games/g2048/spec'
+import { corpusStats, downloadCorpus, clearEpisodes, type CorpusStats } from './platform/recorder'
+import { syncEnabled, type SyncState } from './platform/sync'
+import { game2048, type G2048State, type G2048Action } from './games/g2048/spec'
 import { canMove, LEFT, RIGHT, UP, DOWN, N } from './games/g2048/engine'
-import { planMove } from './games/g2048/play'
+import { planMove, type TileMove } from './games/g2048/play'
+
+// A renderable tile. `cell` is its board index [0, N*N); `merged`/`isNew` drive
+// the pulse/pop animations. Identity (`id`) is stable across a slide so React
+// animates the transform rather than remounting.
+interface Tile {
+  id: number
+  value: number
+  cell: number
+  merged: boolean
+  isNew: boolean
+}
+
+type Overlay = 'over' | 'won' | null
 
 let TILE_ID = 0
-const nextId = () => ++TILE_ID
+const nextId = (): number => ++TILE_ID
 
 const BEST_KEY = 'trace-solo-best-2048'
 
 // Build renderable tiles from a board. `moves` (from the slide just played) tells
 // us which destination cells are merges (pulse) and which cell is the fresh
 // spawn (pop). Empty `moves` => a brand-new game, every tile pops in.
-function boardToTiles(board, moves) {
-  const occupied = new Set(moves.map((m) => m.toCell))
-  const merged = new Set(moves.filter((m) => m.merged).map((m) => m.toCell))
-  const out = []
+function boardToTiles(board: number[], moves: TileMove[]): Tile[] {
+  const occupied = new Set<number>(moves.map((m) => m.toCell))
+  const merged = new Set<number>(moves.filter((m) => m.merged).map((m) => m.toCell))
+  const out: Tile[] = []
   for (let i = 0; i < board.length; i++) {
     if (board[i] === 0) continue
     out.push({ id: nextId(), value: board[i], cell: i, merged: merged.has(i), isNew: !occupied.has(i) })
@@ -26,34 +39,39 @@ function boardToTiles(board, moves) {
 }
 
 // Slide existing tiles to their destination cells (animates the transform).
-function slideTiles(tiles, moves) {
-  const to = new Map()
+function slideTiles(tiles: Tile[], moves: TileMove[]): Tile[] {
+  const to = new Map<number, number>()
   for (const m of moves) to.set(m.fromCell, m.toCell)
-  return tiles.map((t) => ({ ...t, cell: to.has(t.cell) ? to.get(t.cell) : t.cell, merged: false, isNew: false }))
+  return tiles.map((t) => ({ ...t, cell: to.has(t.cell) ? (to.get(t.cell) as number) : t.cell, merged: false, isNew: false }))
 }
 
-const KEY_DIR = {
+const KEY_DIR: Partial<Record<string, number>> = {
   ArrowLeft: LEFT, a: LEFT, A: LEFT,
   ArrowRight: RIGHT, d: RIGHT, D: RIGHT,
   ArrowUp: UP, w: UP, W: UP,
   ArrowDown: DOWN, s: DOWN, S: DOWN,
 }
 
-export default function App() {
-  const [tiles, setTiles] = useState([])
-  const [score, setScore] = useState(0)
-  const [best, setBest] = useState(() => Number(localStorage.getItem(BEST_KEY)) || 0)
-  const [seed, setSeed] = useState(0)
-  const [overlay, setOverlay] = useState(null) // 'over' | 'won' | null
-  const [stats, setStats] = useState({ episodes: 0, plies: 0 })
-  const [sync, setSync] = useState(syncEnabled() ? 'pending' : 'off')
+const SYNC_LABEL: Record<SyncState, string> = {
+  off: 'local only', pending: 'syncing…', synced: 'synced',
+  error: 'offline', rejected: 'rejected',
+}
 
-  const sessionRef = useRef(null)
-  const tilesRef = useRef([])
+export default function App() {
+  const [tiles, setTiles] = useState<Tile[]>([])
+  const [score, setScore] = useState(0)
+  const [best, setBest] = useState<number>(() => Number(localStorage.getItem(BEST_KEY)) || 0)
+  const [seed, setSeed] = useState(0)
+  const [overlay, setOverlay] = useState<Overlay>(null)
+  const [stats, setStats] = useState<CorpusStats>({ episodes: 0, plies: 0 })
+  const [sync, setSync] = useState<SyncState>(syncEnabled() ? 'pending' : 'off')
+
+  const sessionRef = useRef<Session<G2048State, G2048Action> | null>(null)
+  const tilesRef = useRef<Tile[]>([])
   const animRef = useRef(false)
   const wonRef = useRef(false)
 
-  const applyTiles = (t) => {
+  const applyTiles = (t: Tile[]): void => {
     tilesRef.current = t
     setTiles(t)
   }
@@ -63,7 +81,7 @@ export default function App() {
   }, [])
 
   const newGame = useCallback(
-    (fixedSeed) => {
+    (fixedSeed?: number) => {
       const s = new Session(game2048, fixedSeed)
       sessionRef.current = s
       wonRef.current = false
@@ -78,7 +96,7 @@ export default function App() {
   )
 
   const move = useCallback(
-    (dir) => {
+    (dir: number) => {
       const s = sessionRef.current
       if (!s || animRef.current || s.isTerminal()) return
       if (!canMove(s.state.board, dir)) return // illegal: ignore, no spawn, no record
@@ -116,7 +134,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const onKey = (e) => {
+    const onKey = (e: KeyboardEvent): void => {
       const dir = KEY_DIR[e.key]
       if (dir === undefined) return
       e.preventDefault()
@@ -126,12 +144,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [move])
 
-  const touch = useRef(null)
-  const onTouchStart = (e) => {
+  const touch = useRef<{ x: number; y: number } | null>(null)
+  const onTouchStart = (e: React.TouchEvent): void => {
     const t = e.touches[0]
     touch.current = { x: t.clientX, y: t.clientY }
   }
-  const onTouchEnd = (e) => {
+  const onTouchEnd = (e: React.TouchEvent): void => {
     if (!touch.current) return
     const t = e.changedTouches[0]
     const dx = t.clientX - touch.current.x
@@ -142,16 +160,15 @@ export default function App() {
     else move(dy > 0 ? DOWN : UP)
   }
 
-  const onExport = () => downloadCorpus().catch(() => {})
-  const onClear = () => {
+  const onExport = (): void => {
+    void downloadCorpus().catch(() => {})
+  }
+  const onClear = (): void => {
     if (!confirm('Clear all locally recorded traces?')) return
-    clearEpisodes().then(refreshStats)
+    void clearEpisodes().then(refreshStats)
   }
 
-  const syncLabel = {
-    off: 'local only', pending: 'syncing…', synced: 'synced',
-    error: 'offline', rejected: 'rejected',
-  }[sync]
+  const syncLabel = SYNC_LABEL[sync]
 
   return (
     <div className="app">

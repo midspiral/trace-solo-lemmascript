@@ -7,8 +7,6 @@
     "noEmit": true,
     "skipLibCheck": true,
     "jsx": "react-jsx",
-    "allowJs": true,
-    "checkJs": false,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "types": ["vite/client"]
   },
